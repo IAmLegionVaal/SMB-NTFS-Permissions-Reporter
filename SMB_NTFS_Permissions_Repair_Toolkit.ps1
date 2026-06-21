@@ -112,7 +112,19 @@ if ($AddRule) {
 if ($RemoveRule) {
     Invoke-RepairAction "Removing exact $AccessControlType $Rights rule for $Account on $Path" {
         $acl = Get-Acl -LiteralPath $Path
-        if (-not $acl.RemoveAccessRuleSpecific((New-RequestedRule))) { throw 'The exact requested access rule was not found.' }
+        $rule = New-RequestedRule
+        $accountSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        $candidate = @($acl.Access | Where-Object {
+            try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $accountSid } catch { $false }
+        } | Where-Object {
+            $_.AccessControlType -eq $rule.AccessControlType -and
+            $_.FileSystemRights -eq $rule.FileSystemRights -and
+            $_.InheritanceFlags -eq $rule.InheritanceFlags -and
+            $_.PropagationFlags -eq $rule.PropagationFlags -and
+            -not $_.IsInherited
+        })
+        if (-not $candidate) { throw 'The exact requested access rule was not found.' }
+        foreach ($entry in $candidate) { $acl.RemoveAccessRuleSpecific($entry) }
         Set-Acl -LiteralPath $Path -AclObject $acl
     }
 }
